@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Libreta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand">
+      <h1>Libreta</h1>
+      <button class="theme-toggle" id="themeToggle">Tema</button>
+    </div>
+    <div class="month-nav">
+      <button id="prevMonth" aria-label="Mes anterior">‹</button>
+      <div class="label" id="monthLabel">—</div>
+      <button id="nextMonth" aria-label="Mes siguiente">›</button>
+    </div>
+  </header>
+  <main>
+    <div class="balance-card">
+      <div class="eyebrow">Balance del mes</div>
+      <div class="amount" id="balanceAmt">$0</div>
+      <div class="split">
+        <div class="split-item in">
+          <div class="k">Ingresos</div>
+          <div class="v" id="incomeAmt">$0</div>
+        </div>
+        <div class="split-item mid">
+          <div class="k">Gastos</div>
+          <div class="v" id="expenseAmt">$0</div>
+        </div>
+        <div class="split-item out">
+          <div class="k">Ahorro</div>
+          <div class="v" id="savingsAmt">$0</div>
+        </div>
+      </div>
+    </div>
+
+    <section class="block">
+      <h2>Por categoría</h2>
+      <div id="categoryBreakdown"><div class="empty-note">Sin gastos este mes.</div></div>
+    </section>
+
+    <section class="block">
+      <h2>Movimientos</h2>
+      <div id="txList"><div class="empty-note">Aún no hay movimientos este mes.</div></div>
+    </section>
+  </main>
+
+  <button class="fab" id="openAdd" aria-label="Agregar movimiento">+</button>
+  <button class="fab2" id="OpenSavings" aria-label="Agregar ahorro ">+</button>
+  
+  <div class="sheet-backdrop" id="sheetBackdrop">
+    <div class="sheet">
+      <h3 id="sheetTitle">Nuevo movimiento</h3>
+      <div class="type-toggle">
+        <button type="button" class="expense" id="typeExpense">Gasto</button>
+        <button type="button" class="income" id="typeIncome">Ingreso</button>
+      </div>
+      <div class="field">
+        <label for="amtInput">Monto</label>
+        <input type="number" id="amtInput" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div class="field">
+        <label>Categoría</label>
+        <div class="cat-picker" id="catPicker"></div>
+      </div>
+      <div class="field">
+        <label for="dateInput">Fecha</label>
+        <input type="date" id="dateInput">
+      </div>
+      <div class="field">
+        <label for="noteInput">Nota (opcional)</label>
+        <textarea id="noteInput" placeholder="Ej. tacos con los primos"></textarea>
+      </div>
+      <div class="sheet-actions">
+        <button class="btn ghost" id="cancelBtn">Cancelar</button>
+        <button class="btn danger-text" id="deleteBtn" style="display:none;">Eliminar</button>
+        <button class="btn primary" id="saveBtn">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+</body>
+
+<script src="app.js"></script>
+
+</html>

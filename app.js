@@ -1,0 +1,348 @@
+(function() {
+  var DEFAULT_CATEGORIES = [
+    { id: 'comida', name: 'Comida' },
+    { id: 'transporte', name: 'Transporte' },
+    { id: 'renta', name: 'Renta' },
+    { id: 'deudas', name: 'Deudas' },
+    { id: 'negocio', name: 'Negocio' },
+    { id: 'ocio', name: 'Ocio' },
+    { id: 'salud', name: 'Salud' },
+    { id: 'otros', name: 'Otros' }
+  ];
+
+  var state = {
+    db: null,
+    useLocal: false,
+    categories: DEFAULT_CATEGORIES.slice(),
+    txs: [],
+    viewDate: new Date(),
+    editingId: null,
+    formType: 'expense',
+    formCategory: null
+  };
+
+  var fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  var fmtExact = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+  var monthFmt = new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric' });
+  var dayFmt = new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'short' });
+
+  var els = {};
+  ['prevMonth','nextMonth','monthLabel','balanceAmt','incomeAmt','expenseAmt',
+   'categoryBreakdown','txList','openAdd','OpenSavings','sheetBackdrop','sheetTitle',
+   'typeExpense','typeIncome','amtInput','catPicker','dateInput','noteInput',
+   'cancelBtn','deleteBtn','saveBtn','toast','themeToggle'].forEach(function(id) {
+    els[id] = document.getElementById(id);
+  });
+
+  // ---------- Local storage fallback ----------
+  var LS_TX = 'libreta_tx';
+  var LS_CAT = 'libreta_cat';
+  function localLoad() {
+    try {
+      var tx = JSON.parse(localStorage.getItem(LS_TX) || '[]');
+      var cat = JSON.parse(localStorage.getItem(LS_CAT) || 'null');
+      state.txs = tx;
+      if (cat) state.categories = cat;
+    } catch (e) { state.txs = []; }
+  }
+  function localSaveTx() {
+    try { localStorage.setItem(LS_TX, JSON.stringify(state.txs)); } catch (e) {}
+  }
+  function localSaveCat() {
+    try { localStorage.setItem(LS_CAT, JSON.stringify(state.categories)); } catch (e) {}
+  }
+
+  // ---------- Theme ----------
+  function initTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem('libreta_theme'); } catch (e) {}
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
+  }
+  els.themeToggle.addEventListener('click', function() {
+    var cur = document.documentElement.getAttribute('data-theme');
+    var isDark = cur ? cur === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var next = isDark ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('libreta_theme', next); } catch (e) {}
+  });
+  initTheme();
+
+  // ---------- Data init ----------
+  async function initData() {
+    try {
+      var db = await claude.use('db');
+      if (db) {
+        state.db = db;
+        var catDoc = await db.doc('meta/categories').get();
+        if (catDoc.exists && catDoc.data && catDoc.data.list) {
+          state.categories = catDoc.data.list;
+        } else {
+          await db.doc('meta/categories').set({ list: DEFAULT_CATEGORIES });
+          state.categories = DEFAULT_CATEGORIES.slice();
+        }
+        var snap = await db.collection('transactions').get();
+        state.txs = snap.docs.map(function(d) {
+          var data = d.data();
+          data.id = d.id;
+          return data;
+        });
+      } else {
+        state.useLocal = true;
+        localLoad();
+      }
+    } catch (e) {
+      state.useLocal = true;
+      localLoad();
+    }
+    render();
+  }
+
+  async function saveCategories() {
+    if (state.db && !state.useLocal) {
+      try { await state.db.doc('meta/categories').set({ list: state.categories }); }
+      catch (e) { localSaveCat(); }
+    } else {
+      localSaveCat();
+    }
+  }
+
+  async function upsertTx(tx) {
+    if (state.db && !state.useLocal) {
+      try {
+        if (tx.id) {
+          var id = tx.id;
+          var body = Object.assign({}, tx);
+          delete body.id;
+          await state.db.collection('transactions').doc(id).set(body);
+          var idx = state.txs.findIndex(function(t) { return t.id === id; });
+          if (idx >= 0) state.txs[idx] = tx; else state.txs.push(tx);
+        } else {
+          var body2 = Object.assign({}, tx);
+          var ref = await state.db.collection('transactions').add(body2);
+          tx.id = ref.id;
+          state.txs.push(tx);
+        }
+        return;
+      } catch (e) { /* fall through to local */ }
+    }
+    if (!tx.id) tx.id = 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    var idx2 = state.txs.findIndex(function(t) { return t.id === tx.id; });
+    if (idx2 >= 0) state.txs[idx2] = tx; else state.txs.push(tx);
+    localSaveTx();
+  }
+
+  async function deleteTx(id) {
+    if (state.db && !state.useLocal) {
+      try { await state.db.collection('transactions').doc(id).delete(); }
+      catch (e) {}
+    }
+    state.txs = state.txs.filter(function(t) { return t.id !== id; });
+    localSaveTx();
+  }
+
+  // ---------- Helpers ----------
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function isoDate(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function catName(id) {
+    var c = state.categories.find(function(c) { return c.id === id; });
+    return c ? c.name : 'Otros';
+  }
+  function monthTxs() {
+    var y = state.viewDate.getFullYear(), m = state.viewDate.getMonth();
+    return state.txs.filter(function(t) {
+      var d = new Date(t.date + 'T00:00:00');
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+  }
+  function showToast(msg) {
+    els.toast.textContent = msg;
+    els.toast.classList.add('show');
+    setTimeout(function() { els.toast.classList.remove('show'); }, 1800);
+  }
+
+  // ---------- Render ----------
+  function render() {
+    els.monthLabel.textContent = monthFmt.format(state.viewDate);
+    var txs = monthTxs();
+    var income = 0, expense = 0;
+    var byCat = {};
+    txs.forEach(function(t) {
+      if (t.type === 'income') income += t.amount;
+      else { expense += t.amount; byCat[t.categoryId] = (byCat[t.categoryId] || 0) + t.amount; }
+    });
+    els.balanceAmt.textContent = fmt.format(income - expense);
+    els.incomeAmt.textContent = fmt.format(income);
+    els.expenseAmt.textContent = fmt.format(expense);
+
+    // category breakdown
+    var catEntries = Object.keys(byCat).map(function(id) { return { id: id, amt: byCat[id] }; })
+      .sort(function(a, b) { return b.amt - a.amt; });
+    if (catEntries.length === 0) {
+      els.categoryBreakdown.innerHTML = '<div class="empty-note">Sin gastos este mes.</div>';
+    } else {
+      var max = catEntries[0].amt;
+      els.categoryBreakdown.innerHTML = catEntries.map(function(e) {
+        var pct = max > 0 ? Math.max(6, Math.round((e.amt / max) * 100)) : 0;
+        return '<div class="cat-row"><div class="name">' + escapeHtml(catName(e.id)) + '</div>' +
+          '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
+          '<div class="amt">' + fmt.format(e.amt) + '</div></div>';
+      }).join('');
+    }
+
+    // tx list grouped by day
+    var sorted = txs.slice().sort(function(a, b) { return b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0); });
+    if (sorted.length === 0) {
+      els.txList.innerHTML = '<div class="empty-note">Aún no hay movimientos este mes.</div>';
+    } else {
+      var groups = {};
+      var order = [];
+      sorted.forEach(function(t) {
+        if (!groups[t.date]) { groups[t.date] = []; order.push(t.date); }
+        groups[t.date].push(t);
+      });
+      els.txList.innerHTML = order.map(function(date) {
+        var d = new Date(date + 'T00:00:00');
+        var items = groups[date].map(function(t) {
+          var sign = t.type === 'income' ? '+' : '−';
+          return '<div class="tx ' + t.type + '" data-id="' + t.id + '">' +
+            '<div class="dot"></div>' +
+            '<div class="info"><div class="cat">' + escapeHtml(catName(t.categoryId)) + '</div>' +
+            (t.note ? '<div class="note">' + escapeHtml(t.note) + '</div>' : '') + '</div>' +
+            '<div class="amt">' + sign + fmtExact.format(t.amount).replace('MX$', '$') + '</div></div>';
+        }).join('');
+        return '<div class="day-group"><div class="day-label">' + dayFmt.format(d) + '</div>' + items + '</div>';
+      }).join('');
+      Array.prototype.forEach.call(els.txList.querySelectorAll('.tx'), function(el) {
+        el.addEventListener('click', function() { openEdit(el.getAttribute('data-id')); });
+      });
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  // ---------- Month nav ----------
+  els.prevMonth.addEventListener('click', function() {
+    state.viewDate = new Date(state.viewDate.getFullYear(), state.viewDate.getMonth() - 1, 1);
+    render();
+  });
+  els.nextMonth.addEventListener('click', function() {
+    state.viewDate = new Date(state.viewDate.getFullYear(), state.viewDate.getMonth() + 1, 1);
+    render();
+  });
+
+  // ---------- Sheet / form ----------
+  function renderCatPicker() {
+    var chips = state.categories.map(function(c) {
+      var sel = c.id === state.formCategory ? ' selected' : '';
+      return '<button type="button" class="cat-chip' + sel + '" data-id="' + c.id + '">' + escapeHtml(c.name) + '</button>';
+    }).join('');
+    chips += '<button type="button" class="cat-chip add-new" id="addCatChip">+ nueva</button>';
+    els.catPicker.innerHTML = chips;
+    Array.prototype.forEach.call(els.catPicker.querySelectorAll('.cat-chip:not(.add-new)'), function(el) {
+      el.addEventListener('click', function() {
+        state.formCategory = el.getAttribute('data-id');
+        renderCatPicker();
+      });
+    });
+    document.getElementById('addCatChip').addEventListener('click', function() {
+      var name = prompt('Nombre de la nueva categoría:');
+      if (!name) return;
+      var id = name.toLowerCase().trim().replace(/[^a-z0-9áéíóúñ]+/gi, '-').replace(/^-+|-+$/g, '') || ('cat' + Date.now());
+      if (state.categories.find(function(c) { return c.id === id; })) { id = id + '-' + Date.now(); }
+      state.categories.push({ id: id, name: name.trim() });
+      state.formCategory = id;
+      saveCategories();
+      renderCatPicker();
+    });
+  }
+
+  function setFormType(type) {
+    state.formType = type;
+    els.typeExpense.classList.toggle('active', type === 'expense');
+    els.typeIncome.classList.toggle('active', type === 'income');
+  }
+  els.typeExpense.addEventListener('click', function() { setFormType('expense'); });
+  els.typeIncome.addEventListener('click', function() { setFormType('income'); });
+
+  function openSheet() {
+    els.sheetBackdrop.classList.add('open');
+  }
+  function closeSheet() {
+    els.sheetBackdrop.classList.remove('open');
+  }
+  els.cancelBtn.addEventListener('click', closeSheet);
+  els.sheetBackdrop.addEventListener('click', function(e) { if (e.target === els.sheetBackdrop) closeSheet(); });
+
+  function resetForm() {
+    state.editingId = null;
+    state.formType = 'expense';
+    state.formCategory = state.categories[0] ? state.categories[0].id : null;
+    els.sheetTitle.textContent = 'Nuevo movimiento';
+    els.amtInput.value = '';
+    els.noteInput.value = '';
+    els.dateInput.value = isoDate(new Date());
+    els.deleteBtn.style.display = 'none';
+    setFormType('expense');
+    renderCatPicker();
+  }
+
+  els.openAdd.addEventListener('click', function() {
+    resetForm();
+    openSheet();
+  });
+
+//   els.openSavings.addEventListener('click', function() {
+//     resetForm();
+//     setFormType('savings');
+//     openSheet();
+//   });
+
+  function openEdit(id) {
+    var t = state.txs.find(function(t) { return t.id === id; });
+    if (!t) return;
+    state.editingId = id;
+    state.formCategory = t.categoryId;
+    els.sheetTitle.textContent = 'Editar movimiento';
+    els.amtInput.value = t.amount;
+    els.noteInput.value = t.note || '';
+    els.dateInput.value = t.date;
+    els.deleteBtn.style.display = '';
+    setFormType(t.type);
+    renderCatPicker();
+    openSheet();
+  }
+
+  els.deleteBtn.addEventListener('click', async function() {
+    if (!state.editingId) return;
+    await deleteTx(state.editingId);
+    closeSheet();
+    render();
+    showToast('Movimiento eliminado');
+  });
+
+  els.saveBtn.addEventListener('click', async function() {
+    var amt = parseFloat(els.amtInput.value);
+    if (!amt || amt <= 0) { els.amtInput.focus(); return; }
+    if (!state.formCategory) { state.formCategory = state.categories[0] ? state.categories[0].id : 'otros'; }
+    if (!els.dateInput.value) { els.dateInput.value = isoDate(new Date()); }
+    var tx = {
+      id: state.editingId,
+      amount: Math.round(amt * 100) / 100,
+      type: state.formType,
+      categoryId: state.formCategory,
+      note: els.noteInput.value.trim(),
+      date: els.dateInput.value,
+      createdAt: Date.now()
+    };
+    await upsertTx(tx);
+    closeSheet();
+    render();
+    showToast(state.editingId ? 'Movimiento actualizado' : 'Movimiento guardado');
+  });
+
+  initData();
+})();
