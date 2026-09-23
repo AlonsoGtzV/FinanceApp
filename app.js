@@ -14,11 +14,13 @@
     db: null,
     useLocal: false,
     categories: DEFAULT_CATEGORIES.slice(),
+    folders: [],
     txs: [],
     viewDate: new Date(),
     editingId: null,
     formType: 'expense',
-    formCategory: null
+    formCategory: null,
+    formFolder: null
   };
 
   var fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
@@ -37,12 +39,17 @@
   // ---------- Local storage fallback ----------
   var LS_TX = 'libreta_tx';
   var LS_CAT = 'libreta_cat';
+  var LS_FOLDERS = 'libreta_folders';
+
+  
   function localLoad() {
     try {
       var tx = JSON.parse(localStorage.getItem(LS_TX) || '[]');
       var cat = JSON.parse(localStorage.getItem(LS_CAT) || 'null');
+      var folders = JSON.parse(localStorage.getItem(LS_FOLDERS) || '[]');
       state.txs = tx;
       if (cat) state.categories = cat;
+      state.folders = folders;
     } catch (e) { state.txs = []; }
   }
   function localSaveTx() {
@@ -51,7 +58,9 @@
   function localSaveCat() {
     try { localStorage.setItem(LS_CAT, JSON.stringify(state.categories)); } catch (e) {}
   }
-
+  function localSaveFolders() {
+    try { localStorage.setItem(LS_FOLDERS, JSON.stringify(state.folders)); } catch (e) {}
+  }
   // ---------- Theme ----------
   function initTheme() {
     var saved = null;
