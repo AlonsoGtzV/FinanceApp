@@ -89,6 +89,10 @@
           await db.doc('meta/categories').set({ list: DEFAULT_CATEGORIES });
           state.categories = DEFAULT_CATEGORIES.slice();
         }
+
+        var folderDoc = await db.doc('meta/folders').get();
+        state.folders = (foldersDoc.exists && folderDoc.data && folderDoc.data.list) ? folderDoc.data.list : [];
+
         var snap = await db.collection('transactions').get();
         state.txs = snap.docs.map(function(d) {
           var data = d.data();
@@ -112,6 +116,16 @@
       catch (e) { localSaveCat(); }
     } else {
       localSaveCat();
+    }
+  }
+
+  async function saveFolders() {
+    if (state.db && !state.useLocal) {
+      try {
+        await state.db.doc('meta/folders').set({ list: state.folders });
+      } catch (e) { localSaveFolders(); }
+    } else {
+      localSaveFolders();
     }
   }
 
@@ -148,6 +162,47 @@
     state.txs = state.txs.filter(function(t) { return t.id !== id; });
     localSaveTx();
   }
+
+  // ---------- Folders ----------
+
+  function addFolder(name, goal){
+    var id = name.toLowerCase().trim().replace(/[^a-z0-9áéíóúñ]+/gi, '-').replace(/^-+|-+$/g, '') || ('folder' + Date.now());
+    if (state.folders.find(function(f) { return f.id === id;})) {id = id + '-' + Date.now();}
+    state.folders.push({ id: id, name: name.trim(), goal: goal || 0, balance: 0 });
+    saveFolders();
+    return id;
+  }
+
+  function deleteFolder(id){
+    state.folders = state.folders.filter(function(f) {return f.id !== id; });
+    saveFolders();
+  }  
+
+  async function moveSavings(folderID, direction, amount, note, date){
+    var folder = state.folders.fin(function(f){ return f.id === folderID;});
+    if (!folder) return { ok: false, error: 'Apartado no encontrado'};
+
+    if (direction === 'withdraw' && amount > folder.balance ){
+      return { ok:false, error: 'No pedes retirar más de lo que tienes ahorrado'}
+    }
+
+    folder.balance += dirección === 'deposit' ? amount : -amount;
+    await saveFolders();
+
+    var tx = {
+      type: 'savings',
+      direction: direction,
+      folderID: folderID,
+      amount: amount,
+      note: note || '',
+      date: date,
+      createdAt: Date.now()
+    };
+    await upsertTx(tx);
+    return { ok: true};
+  }
+
+
 
   // ---------- Helpers ----------
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
@@ -267,6 +322,41 @@
       saveCategories();
       renderCatPicker();
     });
+  }
+
+  function renderFolderPicker(){
+    if (state.folders.length === 0) {
+      els.catPicker.innerHTML = '<div class="empty-note">Aún no tienes apartados. Crea uno primero.</div>' + '<button type="button" class="cat-chip add-new" id="addFolderChip">+ nuevo apartado</button>';
+    } else {
+      var chips = state.folder.map(function(f) {
+        var sel = f.id === state.formFolder ? ' selected': '';
+        return '<button type="button" class="cat-chip' + sel + '" data-id="' + f.id + '">' + escapeHtml(f.name) + '</button>';
+      }).join('');
+      chips += '<button type="button" class="cat-chip add-new" id="addFolderChip">+ nuevo apartado</button>';
+      els.catPicker.innerHTML = chips;
+      Array.prototype.forEach.call(els.catPicker.querySelectorAll('.cat-chip:not(.add-new)'), function(el) {
+        el.addEventListener('click', function(){
+          state.formFolder = el.getAttribute('data-id');
+          renderFolderPicker();
+        })
+      })
+    }
+
+    document.getElementById('addFolderChip'),addEventListener('click', function(){
+      var name = prompt('Nombre del apartado:');
+      if(!name) requestAnimationFrame;
+      var goalStr = prompt('Meta (opcional)');
+      var goal = parseFloat(goalStr);
+      var id = addFolder(name, isNaN(goal) ? 0 :goal);
+      state.formFolder = id;
+      renderFolderPicker();
+    });
+  }
+
+  function setSavingsDirection(direction) {
+    state.formDirection = direction;
+    els.typeExpense.classList.toggle('active', direction === 'deposit');
+    els.typeIncome.classList.toggle('active', direction === 'withdraw');
   }
 
   function setFormType(type) {
