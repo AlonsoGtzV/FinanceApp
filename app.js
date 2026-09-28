@@ -155,6 +155,15 @@
   }
 
   async function deleteTx(id) {
+    var tx = state.txs.find(function(t) {return t.id === id;});
+    if (tx && tx.type === 'savings'){
+      var folder = state.folders.find(function(f) {return f.id === tx.folderId;});
+      if (folder) {
+        folder.balance += tx.direction === 'deposit' ? -tx.amount : tx.amount;
+        await saveFolders();
+      }
+    }
+
     if (state.db && !state.useLocal) {
       try { await state.db.collection('transactions').doc(id).delete(); }
       catch (e) {}
@@ -176,17 +185,52 @@
   function deleteFolder(id){
     state.folders = state.folders.filter(function(f) {return f.id !== id; });
     saveFolders();
-  }  
+  } 
+  
+  function updateFolder(id, name, goal) {
+    var f = state.folders.find(function(f) { return f.id === id; });
+    if (!f) return;
+    f.name = name.trim();
+    f.goal = goal;
+    saveFolders();
+  }
+
+  function editFolder(id) {
+    var f = state.folders.find(function(f) { return f.id === id; });
+    if (!f) return;
+    var name = prompt('Nombre del apartado:', f.name);
+    if (name === null || !name.trim()) return;
+    var goalStr = prompt('Meta (0 o vacío = sin meta):', f.goal || '');
+    if (goalStr === null) return;
+    var goal = parseFloat(goalStr);
+    updateFolder(id, name, isNaN(goal) || goal < 0 ? 0 : goal);
+    render();
+    showToast('Apartado actualizado');
+  }
+
+  function removeFolder(id) {
+    var f = state.folders.find(function(f) { return f.id === id; });
+    if (!f) return;
+    if (f.balance > 0) { showToast('Retira el saldo antes de eliminar el apartado'); return; }
+    if (!confirm('¿Eliminar el apartado "' + f.name + '"?')) return;
+    deleteFolder(id);
+    render();
+    showToast('Apartado eliminado');
+  }
 
   async function moveSavings(folderID, direction, amount, note, date){
-    var folder = state.folders.fin(function(f){ return f.id === folderID;});
+    var folder = state.folders.find(function(f){ return f.id === folderID;});
     if (!folder) return { ok: false, error: 'Apartado no encontrado'};
 
     if (direction === 'withdraw' && amount > folder.balance ){
       return { ok:false, error: 'No pedes retirar más de lo que tienes ahorrado'}
     }
 
-    folder.balance += dirección === 'deposit' ? amount : -amount;
+    if (direction === 'deposit' && amount > monthBalance(date)) {
+      return{ ok: false, error: 'El depósito excede el balance disponible del mes'}; 
+    }
+
+    folder.balance += direction === 'deposit' ? amount : -amount;
     await saveFolders();
 
     var tx = {
@@ -224,6 +268,21 @@
       return d.getFullYear() === y && d.getMonth() === m;
     });
   }
+
+  function monthBalance(dateStr){
+    var d = new Date(dateStr + 'T00:00:00');
+    var y = d.getFullYear(), m = d.getMonth();
+    var bal = 0;
+    state.txs.forEach(function(t){
+      var td = new Date(t.date + 'T00:00:00');
+      if(td.getFullYear() !== y || td.getMonth() !== m)return;
+      if(t.type === 'income') bal += t.amount;
+      else if (t.type === 'expense') bal -= t.amount;
+      else if (t.type === 'savings') bal -= t.direction === 'deposit' ? t.amount : -t.amount;
+    });
+    return bal;
+  }
+
   function showToast(msg) {
     els.toast.textContent = msg;
     els.toast.classList.add('show');
@@ -238,13 +297,15 @@
     var byCat = {};
     txs.forEach(function(t) {
       if (t.type === 'income') income += t.amount;
-      else if (t.type === 'expenses') { expense += t.amount; byCat[t.categoryId] = (byCat[t.categoryId] || 0)+ t.amount;}
-      else if (t.type === 'savings?') { savingsMonth += t.direction === 'deposit' ? t.amount : -t.amount;} 
+      else if (t.type === 'expense') { expense += t.amount; byCat[t.categoryId] = (byCat[t.categoryId] || 0)+ t.amount;}
+      else if (t.type === 'savings') { savingsMonth += t.direction === 'deposit' ? t.amount : -t.amount;} 
     });
+
+    var totalSaved = state.folders.reduce(function(sum, f) { return sum + f.balance; }, 0);
     els.balanceAmt.textContent = fmt.format(income - expense - savingsMonth);
     els.incomeAmt.textContent = fmt.format(income);
     els.expenseAmt.textContent = fmt.format(expense);
-    els.savingsAmt.textContent = fmt.format(savingsMonth);
+    els.savingsAmt.textContent = fmt.format(totalSaved);
 
     // category breakdown
     var catEntries = Object.keys(byCat).map(function(id) { return { id: id, amt: byCat[id] }; })
@@ -311,8 +372,17 @@
       var goalText = f.goal >0 ? (fmt.format(f.balance) + ' de ' + fmt.format(f.goal)) : fmt.format(f.balance);
       return '<div class="cat-row"><div class="name">' + escapeHtml(f.name) + '</div>' +
       '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
-      '<div class="amt">' + goalText + '</div></div>';
+      '<div class="amt">' + goalText + '</div><button type="button" class="icon-btn" data-action="edit" data-id="' + f.id + '">✎</button>' +
+      '<button type="button" class="icon-btn" data-action="delete" data-id="' + f.id + '">✕</button></div>';
     }).join('');
+
+    Array.prototype.forEach.call(els.foldersList.querySelectorAll('.icon-btn'), function(btn) {
+      btn.addEventListener('click', function() {
+        var id = btn.getAttribute('data-id');
+        if (btn.getAttribute('data-action') === 'edit') editFolder(id);
+        else removeFolder(id);
+  });
+});
   }
 
   function escapeHtml(s) {
@@ -361,7 +431,7 @@
     if (state.folders.length === 0) {
       els.catPicker.innerHTML = '<div class="empty-note">Aún no tienes apartados. Crea uno primero.</div>' + '<button type="button" class="cat-chip add-new" id="addFolderChip">+ nuevo apartado</button>';
     } else {
-      var chips = state.folder.map(function(f) {
+      var chips = state.folders.map(function(f) {
         var sel = f.id === state.formFolder ? ' selected': '';
         return '<button type="button" class="cat-chip' + sel + '" data-id="' + f.id + '">' + escapeHtml(f.name) + '</button>';
       }).join('');
@@ -375,9 +445,9 @@
       })
     }
 
-    document.getElementById('addFolderChip'),addEventListener('click', function(){
+    document.getElementById('addFolderChip').addEventListener('click', function(){
       var name = prompt('Nombre del apartado:');
-      if(!name) requestAnimationFrame;
+      if(!name) return;
       var goalStr = prompt('Meta (opcional)');
       var goal = parseFloat(goalStr);
       var id = addFolder(name, isNaN(goal) ? 0 :goal);

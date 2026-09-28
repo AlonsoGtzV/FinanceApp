@@ -35,6 +35,16 @@
       color-scheme: light;
     }
   }
+
+  .icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
   :root[data-theme="light"] {
     --bg: #F5F3EE;
     --surface: #FFFFFF;
