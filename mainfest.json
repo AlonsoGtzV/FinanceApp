@@ -1,0 +1,22 @@
+{
+  "name": "Control de Gastos",
+  "short_name": "Gastos",
+  "description": "Aplicación para registrar y controlar gastos personales.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "assets/save-money.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/money.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

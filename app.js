@@ -1,3 +1,11 @@
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js')
+            .then(() => console.log('SW registrado'))
+            .catch(err => console.error(err));
+    });
+}
+
 (function() {
   var DEFAULT_CATEGORIES = [
     { id: 'comida', name: 'Comida' },
@@ -91,7 +99,7 @@
         }
 
         var folderDoc = await db.doc('meta/folders').get();
-        state.folders = (foldersDoc.exists && folderDoc.data && folderDoc.data.list) ? folderDoc.data.list : [];
+        state.folders = (folderDoc.exists && folderDoc.data && folderDoc.data.list) ? folderDoc.data.list : [];
 
         var snap = await db.collection('transactions').get();
         state.txs = snap.docs.map(function(d) {
