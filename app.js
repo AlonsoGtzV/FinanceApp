@@ -30,9 +30,9 @@
 
   var els = {};
   ['prevMonth','nextMonth','monthLabel','balanceAmt','incomeAmt','expenseAmt',
-   'categoryBreakdown','txList','openAdd','OpenSavings','sheetBackdrop','sheetTitle',
+   'categoryBreakdown','foldersList','txList','openAdd','OpenSavings','sheetBackdrop','sheetTitle',
    'typeExpense','typeIncome','amtInput','catPicker','dateInput','noteInput',
-   'cancelBtn','deleteBtn','saveBtn','toast','themeToggle'].forEach(function(id) {
+   'cancelBtn','deleteBtn','saveBtn','toast','themeToggle','savingsAmt'].forEach(function(id) {
     els[id] = document.getElementById(id);
   });
 
@@ -211,6 +211,12 @@
     var c = state.categories.find(function(c) { return c.id === id; });
     return c ? c.name : 'Otros';
   }
+
+  function folderName(id) {
+      var f = state.folders.find(function(f) {return f.id === id;});
+      return f ? f.name : 'Apartado'
+  }
+
   function monthTxs() {
     var y = state.viewDate.getFullYear(), m = state.viewDate.getMonth();
     return state.txs.filter(function(t) {
@@ -228,15 +234,17 @@
   function render() {
     els.monthLabel.textContent = monthFmt.format(state.viewDate);
     var txs = monthTxs();
-    var income = 0, expense = 0;
+    var income = 0, expense = 0, savingsMonth = 0;
     var byCat = {};
     txs.forEach(function(t) {
       if (t.type === 'income') income += t.amount;
-      else { expense += t.amount; byCat[t.categoryId] = (byCat[t.categoryId] || 0) + t.amount; }
+      else if (t.type === 'expenses') { expense += t.amount; byCat[t.categoryId] = (byCat[t.categoryId] || 0)+ t.amount;}
+      else if (t.type === 'savings?') { savingsMonth += t.direction === 'deposit' ? t.amount : -t.amount;} 
     });
-    els.balanceAmt.textContent = fmt.format(income - expense);
+    els.balanceAmt.textContent = fmt.format(income - expense - savingsMonth);
     els.incomeAmt.textContent = fmt.format(income);
     els.expenseAmt.textContent = fmt.format(expense);
+    els.savingsAmt.textContent = fmt.format(savingsMonth);
 
     // category breakdown
     var catEntries = Object.keys(byCat).map(function(id) { return { id: id, amt: byCat[id] }; })
@@ -253,6 +261,8 @@
       }).join('');
     }
 
+    renderFolders();
+
     // tx list grouped by day
     var sorted = txs.slice().sort(function(a, b) { return b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0); });
     if (sorted.length === 0) {
@@ -267,10 +277,19 @@
       els.txList.innerHTML = order.map(function(date) {
         var d = new Date(date + 'T00:00:00');
         var items = groups[date].map(function(t) {
-          var sign = t.type === 'income' ? '+' : '−';
-          return '<div class="tx ' + t.type + '" data-id="' + t.id + '">' +
+          var label, sign, cls;
+          if (t.type === 'savings') {
+            label = folderName(t.folderId) + (t.direction === 'withdraw' ? ' (retiro)' : ' (depósito)');
+            sign = t.direction === 'deposit' ? '-' : '+';
+            cls = t.direction === 'deposit' ? 'expense' : 'income';
+          } else {
+            label = catName(t.categoryId);
+            sign = t.type === 'income' ? '+' : '-';
+            cls = t.type;
+          }
+          return '<div class="tx ' + cls + '" data-id="' + t.id + '">' +
             '<div class="dot"></div>' +
-            '<div class="info"><div class="cat">' + escapeHtml(catName(t.categoryId)) + '</div>' +
+            '<div class="info"><div class="cat">' + escapeHtml(label) + '</div>' +
             (t.note ? '<div class="note">' + escapeHtml(t.note) + '</div>' : '') + '</div>' +
             '<div class="amt">' + sign + fmtExact.format(t.amount).replace('MX$', '$') + '</div></div>';
         }).join('');
@@ -280,6 +299,20 @@
         el.addEventListener('click', function() { openEdit(el.getAttribute('data-id')); });
       });
     }
+  }
+
+  function renderFolders(){
+    if (state.folders.length === 0){
+      els.foldersList.innerHTML = '<div class="empty-note">Aún no tienes apartados </div>';
+      return;
+    }
+    els.foldersList.innerHTML = state.folders.map(function(f) {
+      var pct = f.goal >0 ? Math.min(100, Math.round((f.balance / f.goal)* 100)) : 0;
+      var goalText = f.goal >0 ? (fmt.format(f.balance) + ' de ' + fmt.format(f.goal)) : fmt.format(f.balance);
+      return '<div class="cat-row"><div class="name">' + escapeHtml(f.name) + '</div>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
+      '<div class="amt">' + goalText + '</div></div>';
+    }).join('');
   }
 
   function escapeHtml(s) {
@@ -359,13 +392,34 @@
     els.typeIncome.classList.toggle('active', direction === 'withdraw');
   }
 
+  function resetSavingsForm(){
+    state.editingId = null;
+    state.formType = 'savings';
+    state.formFolder = state.folders[0] ? state.folders[0].id : null;
+    els.sheetTitle.textContent = 'Mover a Apartado';
+    els.amtInput.value = '';
+    els.noteInput.value = '';
+    els.dateInput.value = isoDate(new Date());
+    els.deleteBtn.style.display = 'none';
+    els.typeExpense.textContent = 'Depositar';
+    els.typeIncome.textContent = 'Retirar';
+    setSavingsDirection('deposit');
+    renderFolderPicker();
+  }
+
   function setFormType(type) {
     state.formType = type;
     els.typeExpense.classList.toggle('active', type === 'expense');
     els.typeIncome.classList.toggle('active', type === 'income');
   }
-  els.typeExpense.addEventListener('click', function() { setFormType('expense'); });
-  els.typeIncome.addEventListener('click', function() { setFormType('income'); });
+  els.typeExpense.addEventListener('click', function() {
+    if (state.formType === 'savings') setSavingsDirection('deposit');
+    else setFormType('expense');
+  });
+  els.typeIncome.addEventListener('click', function() {
+    if(state.formType === 'savings') setSavingsDirection('withdraw');
+    else setFormType('income');
+  });
 
   function openSheet() {
     els.sheetBackdrop.classList.add('open');
@@ -385,6 +439,8 @@
     els.noteInput.value = '';
     els.dateInput.value = isoDate(new Date());
     els.deleteBtn.style.display = 'none';
+    els.typeExpense.textContent = 'Gasto';
+    els.typeIncome.textContent = 'Ingreso';
     setFormType('expense');
     renderCatPicker();
   }
@@ -394,11 +450,10 @@
     openSheet();
   });
 
-//   els.openSavings.addEventListener('click', function() {
-//     resetForm();
-//     setFormType('savings');
-//     openSheet();
-//   });
+  els.OpenSavings.addEventListener('click', function(){
+    resetSavingsForm();
+    openSheet();
+  });
 
   function openEdit(id) {
     var t = state.txs.find(function(t) { return t.id === id; });
@@ -426,8 +481,18 @@
   els.saveBtn.addEventListener('click', async function() {
     var amt = parseFloat(els.amtInput.value);
     if (!amt || amt <= 0) { els.amtInput.focus(); return; }
-    if (!state.formCategory) { state.formCategory = state.categories[0] ? state.categories[0].id : 'otros'; }
     if (!els.dateInput.value) { els.dateInput.value = isoDate(new Date()); }
+    if (state.formType === 'savings'){
+      if(!state.formFolder) { showToast('Selecciona un apartado'); return; }
+      var result = await moveSavings(state.formFolder, state.formDirection, Math.round(amt * 100) / 100, els.noteInput.value.trim(), els.dateInput.value);
+      if (!result.ok) { showToast(result.error); return;}
+      closeSheet();
+      render();
+      showToast('Movimiento guardado');
+      return;
+    }
+
+    if (!state.formCategory) { state.formCategory = state.categories[0] ? state.categories[0].id : 'otros'; }
     var tx = {
       id: state.editingId,
       amount: Math.round(amt * 100) / 100,
