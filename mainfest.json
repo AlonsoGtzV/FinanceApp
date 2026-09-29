@@ -17,6 +17,16 @@
       "src": "assets/money.png",
       "sizes": "512x512",
       "type": "image/png"
+    },
+    {
+      "src": "assets/coins.png.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/save-money.png",
+      "sizes": "512x512",
+      "type": "image/png"
     }
   ]
 }
