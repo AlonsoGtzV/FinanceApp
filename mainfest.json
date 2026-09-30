@@ -19,12 +19,12 @@
       "type": "image/png"
     },
     {
-      "src": "assets/coins.png.png",
+      "src": "assets/coins.png",
       "sizes": "512x512",
       "type": "image/png"
     },
     {
-      "src": "assets/save-money.png",
+      "src": "assets/sack-dollar.png.png",
       "sizes": "512x512",
       "type": "image/png"
     }
