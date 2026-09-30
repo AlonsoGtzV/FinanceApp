@@ -3,8 +3,8 @@ const CACHE_NAME = 'control-gastos-v1';
 const urlsToCache = [
   './',
   './index.html',
-  './css/styles.css',
-  './js/app.js',
+  './styles.css',
+  './app.js',
   './manifest.json',
   './assets/money.png',
   './assets/save-money.png',
