@@ -8,7 +8,7 @@ const urlsToCache = [
   './manifest.json',
   './assets/money.png',
   './assets/save-money.png',
-  './assets/sack-dollar.png.png',
+  './assets/sack-dollar.png',
   './assets/edit.png',
   './assets/coins.png'
 ];
