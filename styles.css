@@ -214,15 +214,15 @@
     mask-position: center;
   }
   .icon-coins {
-    -webkit-mask-image: url('/assets/coins.png');
-    mask-image: url('/assets/coins.png');
+    -webkit-mask-image: url('./assets/coins.png');
+    mask-image: url('./assets/coins.png');
     width: 36px;
     height: 36px;
   }
 
   .icon-sack {
-    -webkit-mask-image: url('/assets/sack-dollar.png');
-    mask-image: url('/assets/sack-dollar.png');
+    -webkit-mask-image: url('./assets/sack-dollar.png');
+    mask-image: url('./assets/sack-dollar.png');
     margin-left: 2%;
   }
 
